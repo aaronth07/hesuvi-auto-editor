@@ -1,0 +1,23 @@
+{
+  "stimulus": "sources/dirac-stimulus.wav",
+  "apple": "sources/reference-stereo.wav",
+  "capture": "sources/capture-stereo.wav",
+  "output_dir": "output",
+  "alignment": "apple_peak",
+  "onset_db": -80,
+  "onset_floor": 1e-08,
+  "activity_db": -100,
+  "activity_floor": 1e-07,
+  "noise_multiplier": 20,
+  "quiet_gap_seconds": 0.15,
+  "max_schedule_residual_samples": 2048,
+  "max_alignment_residual_samples": 2,
+  "pre_samples": 0,
+  "tail_samples": 24000,
+  "max_xcorr_residual_samples": 2,
+  "min_xcorr_coefficient": 0.4,
+  "archive_negative_prefix": true,
+  "archive_prefix_samples": 1024,
+  "early_feature_db": -20,
+  "early_feature_guard_samples": 48
+}
