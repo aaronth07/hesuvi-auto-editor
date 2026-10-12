@@ -3,7 +3,7 @@
   "apple": "sources/reference-stereo.wav",
   "capture": "sources/capture-stereo.wav",
   "output_dir": "output",
-  "alignment": "apple_peak",
+  "alignment": "common_peak",
   "onset_db": -80,
   "onset_floor": 1e-08,
   "activity_db": -100,

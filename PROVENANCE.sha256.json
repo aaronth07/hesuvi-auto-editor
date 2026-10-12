@@ -1,30 +1,16 @@
 {
-  "format_version": 1,
-  "scope": "Source code, synthetic tests and static frontend only. No recordings or original stimulus included.",
+  "format_version": 2,
+  "scope": "Python reference, browser application, synthetic tests, and public calibration metadata. No private recordings or supplied listening files.",
   "converter_provenance": {
-    "description": "Byte-identical to the previously verified Dirac-to-HeSuVi converter provided for this task; not changed by the frontend work.",
-    "sha256": "3148ba6209352d5b9c19ae15725724b0c6a0fa28bed0522981fa9148e8a43113"
+    "file": "dirac_to_hesuvi.py",
+    "version": "supplied CommonTiming Fix",
+    "sha256": "ba74203aa650019cd70958b602bd0c1b6c1cd605a0896a59dece1d3d19d3e133",
+    "original_git_commit": "04753c7",
+    "original_sha256": "3148ba6209352d5b9c19ae15725724b0c6a0fa28bed0522981fa9148e8a43113"
   },
-  "changes": "Sanitized config and documentation; standalone synthetic tests; packaging and static local-only config frontend.",
-  "validation": {
-    "dsp_synthetic_tests": 10,
-    "frontend_core_tests": 8,
-    "status": "passed",
-    "visual_browser_qa": "not verified; permission request dismissed"
+  "calibration_provenance": {
+    "file": "presets/known_7_1_calibration.json",
+    "sha256": "d30ecfd2b0db675423224b124f0f526f077338da7cf4b76528675094200c3134"
   },
-  "files": {
-    ".gitignore": "cc5c0f1e291d4e3054f83c7cf5aa1649ff75e3b3e6bfc720a641d1c23978903f",
-    "README.md": "a09b44228b595fb43de8133d6297009090daf085b3afe1a88ec7601988ac07f1",
-    "HANDOFF.md": "17b2f8bb82e08599e209c88493054ab86f58bf292b6b2ae4b357d2b68dc2f043",
-    "config.json": "f296079617367207092c79ca5534af09873a3f250fdaff205a4e6a0ec9b2221f",
-    "dirac_to_hesuvi.py": "3148ba6209352d5b9c19ae15725724b0c6a0fa28bed0522981fa9148e8a43113",
-    "test_dirac_to_hesuvi.py": "a1c2d308f03e2815dca1eea37416d110146a9bf67920e9f7b579d67122d421a1",
-    "requirements.txt": "84c60e5e3ccde42a44a809296097abf4e93e8fc1bad1abe831361d8620ee61b3",
-    "pyproject.toml": "44ecce6dea2ff1424b20a62f41acc29d2420ed3845110e3e2422fa110d42607b",
-    "docs/index.html": "810a6adcab0edc2939e4fa852949c07c0dcb6150a47116aa67a122bd5176a06c",
-    "docs/.nojekyll": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "docs/editor-core.js": "dae310a46c2d5691d847b3343a280c8e57d3b25cd2326c7974fb451633a7fc1c",
-    "docs/editor-ui.js": "a2d0b559c0f1fcde076d4f925c1c7f3bc43ac9667c4f0872ad2c93f1d597bc07",
-    "tests/frontend.test.cjs": "8ed846a9720c989e15c6ea28132344eaedee306251a183906affe9aba09b6edf"
-  }
+  "validation_record": "VALIDATION.md"
 }

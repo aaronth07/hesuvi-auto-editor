@@ -21,3 +21,7 @@ venv/
 *.egg-info/
 build/
 dist/
+.handoff-original/
+tests/.generated/
+
+.handoff-common-timing/

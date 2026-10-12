@@ -1,3 +1,5 @@
+Historical baseline handoff, retained for reference. The current converter, browser app, and publishing arrangement are documented in README.md, PYTHON_REFERENCE.md, and VALIDATION.md. The original baseline is Git commit 04753c7.
+
 # HESUVI AutoEdit handoff
 
 ## Current scope

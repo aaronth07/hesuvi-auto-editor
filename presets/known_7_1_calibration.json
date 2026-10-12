@@ -1,0 +1,96 @@
+{
+  "preset_id": "verified_supplied_7_1_common_peak_v2",
+  "display_name": "Known supplied 7.1 Dirac schedule with Apple 53-sample calibration",
+  "canonical_hesuvi_origin_verified": false,
+  "sample_rate": 48000,
+  "stimulus_provenance": {
+    "sha256": "e607d3fdc38e5f11bb8c705fd318b5bc360fb6bc33b05258f70802469e8717fe",
+    "frames": 432000,
+    "channels": 8,
+    "sample_rate": 48000,
+    "stored_dtype": "int16",
+    "channel_mask": 1599,
+    "channel_map": [
+      "FL",
+      "FR",
+      "FC",
+      "LFE",
+      "BL",
+      "BR",
+      "SL",
+      "SR"
+    ]
+  },
+  "events": [
+    {
+      "label": "FL",
+      "source_channel": 0,
+      "sample": 48000,
+      "amplitude": 0.999969482421875
+    },
+    {
+      "label": "SL",
+      "source_channel": 6,
+      "sample": 96000,
+      "amplitude": 0.999969482421875
+    },
+    {
+      "label": "BL",
+      "source_channel": 4,
+      "sample": 144000,
+      "amplitude": 0.999969482421875
+    },
+    {
+      "label": "FC",
+      "source_channel": 2,
+      "sample": 192000,
+      "amplitude": 0.999969482421875
+    },
+    {
+      "label": "FR",
+      "source_channel": 1,
+      "sample": 240000,
+      "amplitude": 0.999969482421875
+    },
+    {
+      "label": "SR",
+      "source_channel": 7,
+      "sample": 288000,
+      "amplitude": 0.999969482421875
+    },
+    {
+      "label": "BR",
+      "source_channel": 5,
+      "sample": 336000,
+      "amplitude": 0.999969482421875
+    },
+    {
+      "label": "LFE",
+      "source_channel": 3,
+      "sample": 384000,
+      "amplitude": 0.999969482421875
+    }
+  ],
+  "expected_pair_peak_sample": 53,
+  "editor_sha256": "ba74203aa650019cd70958b602bd0c1b6c1cd605a0896a59dece1d3d19d3e133",
+  "detector_config": {
+    "onset_db": -80,
+    "onset_floor": 1e-08,
+    "activity_db": -100,
+    "activity_floor": 1e-07,
+    "noise_multiplier": 20,
+    "quiet_gap_seconds": 0.15,
+    "max_schedule_residual_samples": 2048,
+    "max_alignment_residual_samples": 2,
+    "pre_samples": 0,
+    "tail_samples": 24000,
+    "max_xcorr_residual_samples": 2,
+    "min_xcorr_coefficient": 0.4,
+    "archive_negative_prefix": true,
+    "archive_prefix_samples": 1024,
+    "early_feature_db": -20,
+    "early_feature_guard_samples": 48,
+    "alignment": "common_peak"
+  },
+  "calibration_note": "One common offset calibrates the median directional pair peak to sample 53. Directional timing and ear timing are preserved; individual peak differences are diagnostic, not rejection criteria. Physical latency is not identifiable."
+}

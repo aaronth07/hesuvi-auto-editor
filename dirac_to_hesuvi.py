@@ -72,8 +72,32 @@ def detect(x,sr,cfg):
 def match(events,det,sr,cfg):
     require(len(events)==len(det),f"Expected {len(events)} events including LFE, detected {len(det)}. Supply a cleaner capture or inspect detection parameters; no invented mapping.")
     source=np.array([e['sample'] for e in events]);onsets=np.array([d['onset'] for d in det]);off=onsets-source
-    require(np.ptp(off)<=cfg['max_schedule_residual_samples'],f'Event schedule mismatch (offset range {np.ptp(off)} samples): missing/extra event, drift or variable latency; inspect diagnostics')
+    require(np.ptp(off)<=cfg['max_schedule_residual_samples'],f'Event schedule mismatch (offset range {np.ptp(off)} samples); inspect event assignment and recording timing')
     return [dict(e,**d,source_to_onset_samples=int(d['onset']-e['sample']),source_to_peak_samples=int(d['peak']-e['sample'])) for e,d in zip(events,det)]
+
+def common_peak_shift(events, reference_rows, capture_rows):
+    """Choose one crop offset; preserve renderer-specific direction and ear delays.
+
+    The reference calibrates the median pair-peak position, not each waveform.
+    This is an editing convention, not a measurement of physical latency.
+    """
+    directional = [i for i, event in enumerate(events) if event['label'] != 'LFE']
+    require(len(directional) == 7, 'Expected seven directional events')
+    reference_offsets = [int(reference_rows[i]['peak'] - events[i]['sample']) for i in directional]
+    capture_offsets = [int(capture_rows[i]['peak'] - events[i]['sample']) for i in directional]
+    reference_anchor = int(np.median(reference_offsets))
+    capture_anchor = int(np.median(capture_offsets))
+    shift = capture_anchor - reference_anchor
+    return shift, {
+        'method': 'common_median_pair_peak',
+        'reference_median_peak_samples': reference_anchor,
+        'capture_median_peak_samples': capture_anchor,
+        'reference_peak_offsets_samples': reference_offsets,
+        'capture_peak_offsets_samples': capture_offsets,
+        'output_peak_samples': [offset - shift for offset in capture_offsets],
+        'physical_latency_identifiable': False,
+    }
+
 def extract(x,events,shift,pre,tail):
     out=np.zeros((pre+tail,14),np.float64);ranges=[]
     for e in events:
@@ -92,9 +116,12 @@ def main():
     except DiagnosticError as e:
         (out/'failure.json').write_text(json.dumps({'status':'diagnostic_failure','error':str(e)},indent=2));print('DIAGNOSTIC FAILURE:',e);raise SystemExit(2)
 def run(cfg,base,out,dry):
+    cfg = dict(cfg)
+    cfg.setdefault('alignment', 'common_peak')
     sr,events,si=stimulus(base/cfg['stimulus'],cfg.get('source_channel_map'))
     loaded={};qa={'status':'dry_run' if dry else 'passed','stimulus':si,'routing':ROUTING,'azimuth_degrees':AZIMUTH,'events':events,'alignment_convention':cfg['alignment'],'captures':{}}
-    require(cfg['alignment'] in ('apple_onset','apple_peak'),'alignment must explicitly be apple_onset or apple_peak')
+    require(cfg['alignment'] in ('common_peak','apple_onset','apple_peak'),'alignment must be common_peak, apple_onset or apple_peak')
+    common_mode = cfg['alignment'] == 'common_peak'
     for name,key in [('Apple','apple'),('Far','capture')]:
         fs,x,info=read(base/cfg[key]);require(fs==sr and x.shape[1]==2,'Captures must be stereo at source sample rate; no silent resampling')
         det,diag=detect(x,sr,cfg);(out/f'{name}_detected_candidates.json').write_text(json.dumps({'source':info,'detection':diag,'candidates':det},indent=2));rows=match(events,det,sr,cfg);loaded[name]=(x,rows);qa['captures'][name]={'source':info,'detection':diag,'events':rows}
@@ -105,11 +132,15 @@ def run(cfg,base,out,dry):
     if mode=='peak' and 'capture_shift_samples' not in cfg:
         ambiguous=[f"{name}/{events[i]['label']}: {rows[i]['substantial_feature_lead_samples']} samples" for name,(_,rows) in loaded.items() for i in dirs if rows[i]['substantial_feature_lead_samples']>cfg.get('early_feature_guard_samples',48)]
         require(not ambiguous,'Ambiguous peak anchor: substantial earlier feature may be the direct response and strongest peak a late reflection. Review explicit shift override; '+ '; '.join(ambiguous))
-    shift=int(cfg.get('capture_shift_samples',shifts[mode]))
+    common_shift, timing = common_peak_shift(events, ar, fr)
+    shift=int(cfg.get('capture_shift_samples',common_shift if common_mode else shifts[mode]))
+    timing['explicit_shift_override'] = 'capture_shift_samples' in cfg
+    timing['applied_shift_samples'] = shift
     residual=differences[mode]-shift
-    require(np.max(abs(residual))<=cfg['max_alignment_residual_samples'] or 'capture_shift_samples' in cfg,'Nonconstant capture alignment; explicit reviewed override required')
+    if not common_mode:
+        require(np.max(abs(residual))<=cfg['max_alignment_residual_samples'] or 'capture_shift_samples' in cfg,'Nonconstant capture alignment; explicit reviewed override required')
     xcorr=[]
-    for i in dirs:
+    for i in ([] if common_mode else dirs):
         center=events[i]['sample']; left=-1024; right=4096
         aa=loaded['Apple'][0][center+left:center+right]
         bb=loaded['Far'][0][center+shift+left:center+shift+right]
@@ -117,7 +148,7 @@ def run(cfg,base,out,dry):
         cc=sum(correlate(bb[:,ear],aa[:,ear],mode='full',method='fft') for ear in range(2));lags=correlation_lags(len(bb),len(aa));keep=abs(lags)<=1024
         cc=cc[keep];lags=lags[keep];best=int(np.argmax(abs(cc)));coef=float(cc[best]/np.sqrt(np.sum(aa**2)*np.sum(bb**2)))
         xcorr.append({'label':events[i]['label'],'residual_lag_samples':int(lags[best]),'coefficient':coef})
-    if mode=='peak' and 'capture_shift_samples' not in cfg:
+    if not common_mode and mode=='peak' and 'capture_shift_samples' not in cfg:
         require(all(abs(v['residual_lag_samples'])<=cfg.get('max_xcorr_residual_samples',2) and abs(v['coefficient'])>=cfg.get('min_xcorr_coefficient',.4) for v in xcorr),'Peak anchors not corroborated by stereo waveform correlation. Review onset/late-reflection diagnostics and set explicit capture_shift_samples if justified.')
     pre=int(cfg['pre_samples']);tail=int(cfg['tail_samples']);require(pre>=0 and tail>0,'Invalid extraction window')
     spacing=int(min(np.diff([e['sample'] for e in events])));require(pre+tail<=spacing,'Extraction windows overlap neighboring events')
@@ -129,6 +160,14 @@ def run(cfg,base,out,dry):
             start=events[i]['sample']+sh-pre;end=events[i]['sample']+sh+tail
             require(start>=0 and end<=len(x),'Extraction outside capture')
             require(rows[i]['onset']<end and (start<=rows[i]['onset'] or cfg.get('archive_negative_prefix',False)),'Window omits onset without archival permission')
+            require(start <= rows[i]['peak'] < end, 'Extraction window omits the detected response peak')
+            if common_mode:
+                if not cfg.get('archive_negative_prefix',False):
+                    omitted_prefix=x[rows[i]['search_start']:max(rows[i]['search_start'],start)]
+                    require(not np.any(omitted_prefix),f"{name}/{events[i]['label']}: window omits pre-response; enable prefix archival or increase pre_samples")
+                omitted_tail=x[max(end,rows[i]['search_start']):rows[i]['search_end']]
+                tail_limit=max(cfg['activity_floor'],rows[i]['noise_floor']*cfg['noise_multiplier'],rows[i]['peak_abs']*10**(cfg['activity_db']/20))
+                require(not np.any(abs(omitted_tail)>tail_limit),f"{name}/{events[i]['label']}: response tail exceeds extraction window; increase tail_samples")
             if cfg.get('archive_negative_prefix',False) and pre==0:
                 n=int(cfg.get('archive_prefix_samples',1024));require(n>0 and start>=n,'Invalid prefix length or prefix outside source')
                 require(not np.any(x[rows[i]['search_start']:max(rows[i]['search_start'],start-n)]),'Nonzero pre-response exceeds prefix archive; increase archive_prefix_samples')
@@ -137,6 +176,11 @@ def run(cfg,base,out,dry):
         delta=np.array([fr[i]['onset_thresholds'][db]-ar[i]['onset_thresholds'][db] for i in dirs]);sensitivity[db]={'median_shift':int(np.rint(np.median(delta))),'min':int(delta.min()),'max':int(delta.max())}
     t=np.array([events[i]['sample'] for i in dirs]);peakoffs=np.array([fr[i]['peak']-events[i]['sample'] for i in dirs]);slope=float(np.polyfit(t,peakoffs,1)[0]);peakrange=int(np.ptp(peakoffs))
     qa['alignment']={'selected_shift_samples':shift,'stereo_xcorr_check':xcorr,'selected_shift_seconds':shift/sr,'candidate_shifts':shifts,'residual_samples':[int(v) for v in residual],'threshold_sensitivity_db':sensitivity,'drift':{'peak_offset_range_samples':peakrange,'fitted_peak_slope_ppm':slope*1e6,'correction_applied':False,'interpretation':'Peak spacing supports no measurable drift in this short capture; not a clock calibration. Variable directional responses confound onset slope.'},'confidence':'high schedule/order under chronological-playback assumption; onset calibration is threshold-dependent, not physical latency identification','absolute_latency_identifiable':False}
+    qa['alignment']['drift']['interpretation']='Direction-dependent response timing confounds this slope and spread; neither establishes nor excludes clock drift.'
+    if common_mode:
+        qa['alignment'].update(timing)
+        qa['alignment']['reference_residuals_are_acceptance_criteria']=False
+        qa['alignment']['confidence']='Chronological event assignment with one common crop offset; renderer-specific timing is preserved.'
     for name,(x,rows) in loaded.items():
         sh=0 if name=='Apple' else shift;y,meta=extract(x,events,sh,pre,tail);meta.update(shift_samples=sh,sample_rate=sr,output_frames=len(y),output_channels=14,output_peak_dbfs=float(20*np.log10(np.max(abs(y)))),dtype='float32',time_zero_output_sample=pre)
         meta['window_qa']=[]
