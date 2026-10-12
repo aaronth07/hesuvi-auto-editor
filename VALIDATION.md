@@ -28,3 +28,5 @@ The original physical captures are not included. Timing remains an operational c
 ## Publishing
 
 The application source and Python reference are kept in `aaronth07/hesuvi-auto-editor`. GitHub Pages publishes `main:/docs`. The Spatial Audio Tools repository keeps its project link and an old-address redirect; its copied HeSuVi runtime files are removed. Assets, including the worker and its processor import, use content-based URL versions to avoid stale combinations after updates.
+
+Current hosting is [aaronth07.github.io/hesuvi-auto-editor](https://aaronth07.github.io/hesuvi-auto-editor/), published from the app repository's `main:/docs` at source commit `50d190f`. The old Spatial Audio Tools deployment at source commit `01ada94` no longer contains copied runtime files; its deployed old address redirects to the new app, and the project directory links directly to it. Both Pages builds completed successfully.
