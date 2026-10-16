@@ -12,6 +12,7 @@ dependencies = ["numpy>=1.26,<3", "scipy>=1.12,<2", "matplotlib>=3.8,<4"]
 
 [project.scripts]
 hesuvi-auto-editor = "dirac_to_hesuvi:main"
+hesuvi-align-hrir = "align_hrir:main"
 
 [tool.setuptools]
-py-modules = ["dirac_to_hesuvi"]
+py-modules = ["dirac_to_hesuvi", "align_hrir"]

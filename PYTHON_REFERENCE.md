@@ -1,6 +1,6 @@
 # Python reference
 
-The Python converter uses the actual stimulus and a trusted stereo reference to establish timing. The browser uses the known 48 kHz stimulus schedule and its documented 53-sample reference median.
+The Python converter uses the actual stimulus and a trusted stereo reference to establish timing. The browser uses the known 48 kHz stimulus schedule and can analyze a complete stereo reference capture or a 14-channel reference HRIR. Its optional saved calibration uses the documented 53-sample reference median. The separate `align_hrir.py` script aligns edited 14-channel inputs to an edited 14-channel reference, using the same common-median rule and preserving all nonzero response samples.
 
 ## Inputs and configuration
 

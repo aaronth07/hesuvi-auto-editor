@@ -2,34 +2,38 @@
 (() => {
   const $ = id => document.getElementById(id);
   const form=$('editor'), fileInput=$('recording'), output=$('output');
-  let file=null,worker=null,run=0,urls=[],audio=null,report=null;
+  let file=null,referenceFile=null,worker=null,run=0,urls=[],audio=null,report=null;
   const routing={FL:[0,1],SL:[2,3],BL:[4,5],FC:[6,13],FR:[8,7],SR:[10,9],BR:[12,11]};
   const labels={FL:'Front left',SL:'Side left',BL:'Back left',FC:'Front center',FR:'Front right',SR:'Side right',BR:'Back right'};
   const available=location.protocol!=='file:'&&!!window.Worker&&!!window.crypto?.subtle;
   if(!available){$('environment-error').hidden=false;$('environment-error').textContent=location.protocol==='file:'?'Open this app with Launch.cmd, or use its HTTPS website. Direct file opening cannot start the processing worker.':'This browser needs Web Workers and a secure context. Use a current browser over HTTPS or localhost.';}
-  function busy(value){$('process').disabled=value||!file||!available;$('cancel').hidden=!value;form.setAttribute('aria-busy',String(value));}
+  function busy(value){$('process').disabled=value||!file||!available||($('reference-mode').value==='measured'&&!referenceFile);$('cancel').hidden=!value;form.setAttribute('aria-busy',String(value));}
   function clearResult(){urls.forEach(URL.revokeObjectURL);urls=[];audio=null;report=null;output.hidden=true;for(const id of ['download-wav','download-prefix','download-report'])$(id).removeAttribute('href');$('plots').replaceChildren();$('channel-stats').replaceChildren();$('download-prefix').hidden=true;}
   function stop(){run++;worker?.terminate();worker=null;busy(false);}
   function invalidate(){stop();clearResult();$('status').textContent='';$('error').hidden=true;}
   function error(message){$('error').textContent=message;$('error').hidden=false;$('status').textContent='';}
-  function choose(files){invalidate();if(files.length!==1){file=null;fileInput.value='';$('file-name').textContent='Drop a stereo WAV here';busy(false);error('Choose one stereo WAV recording.');return;}file=files[0];$('file-name').textContent=`${file.name} · ${(file.size/1048576).toFixed(2)} MiB`;if(file.size>128*1048576){file=null;error('The recording exceeds the 128 MiB input limit. Choose a shorter recording.');}busy(false);}
-  $('choose').onclick=()=>fileInput.click();fileInput.onchange=()=>{if(fileInput.files.length)choose(fileInput.files);};
+  function choose(files){invalidate();if(files.length!==1){file=null;fileInput.value='';$('file-name').textContent='Drop a WAV here';busy(false);error('Choose one input WAV.');return;}file=files[0];$('file-name').textContent=`${file.name} · ${(file.size/1048576).toFixed(2)} MiB`;if(file.size>128*1048576){file=null;fileInput.value='';error('The recording exceeds the 128 MiB input limit. Choose a shorter recording.');}busy(false);}
+  $('choose').onclick=()=>fileInput.click();
+  $('choose-reference').onclick=()=>$('reference-file').click();
+  $('reference-file').onchange=()=>{invalidate();referenceFile=$('reference-file').files[0]||null;if(referenceFile?.size>128*1048576){referenceFile=null;$('reference-file').value='';error('Reference exceeds the 128 MiB input limit.');}$('reference-name').textContent=referenceFile?referenceFile.name:'No reference selected';busy(false);};
+  function updateMode(){const edited=$('input-type').value==='edited';if(edited)$('reference-mode').value='measured';$('reference-mode').querySelector('[value=saved]').disabled=edited;$('reference-section').hidden=$('reference-mode').value==='saved';$('advanced').hidden=edited;$('recording-heading').textContent=edited?'Edited HRIR':'Recording';$('input-format').textContent=edited?'48 kHz · 14-channel HeSuVi WAV':'48 kHz stereo · WAV';$('process').textContent=edited?'Align HRIR':'Process recording';$('intro').textContent=edited?'Choose an edited 14-channel HeSuVi WAV and its reference HRIR. Align HRIR applies one timing shift and common gain, retaining the response samples.':$('reference-mode').value==='saved'?'Choose an unedited stereo capture of the supplied 7.1 Dirac stimulus. The saved calibration places its median directional pair peak at sample 53.':'Choose an unedited stereo capture and a reference WAV. The reference can be a complete stereo capture of the same stimulus or an edited 14-channel HeSuVi HRIR.';updateOverride();busy(false);}
+  for(const id of ['input-type','reference-mode'])$(id).onchange=()=>{invalidate();updateMode();};fileInput.onchange=()=>{if(fileInput.files.length)choose(fileInput.files);};
   const drop=$('drop-zone');drop.ondragover=e=>{e.preventDefault();drop.classList.add('dragging');};drop.ondragleave=()=>drop.classList.remove('dragging');drop.ondrop=e=>{e.preventDefault();drop.classList.remove('dragging');choose(e.dataTransfer.files);};
   window.addEventListener('dragover',e=>e.preventDefault());window.addEventListener('drop',e=>e.preventDefault());
   $('cancel').onclick=()=>{invalidate();$('status').textContent='Processing canceled.';};
-  $('reset-editor').onclick=()=>{invalidate();file=null;form.reset();fileInput.value='';$('file-name').textContent='Drop a stereo WAV here';$('advanced').open=false;$('analysis').open=false;$('time-range').value='10';$('processing-details').open=false;updateOverride();busy(false);};
-  function updateOverride(){const enabled=$('override').checked;$('extraction-settings').hidden=!enabled;$('pre').disabled=!enabled;$('tail').disabled=!enabled;}
+  $('reset-editor').onclick=()=>{invalidate();file=null;referenceFile=null;form.reset();$('reference-file').value='';$('reference-name').textContent='No reference selected';fileInput.value='';$('file-name').textContent='Drop a WAV here';$('advanced').open=false;$('analysis').open=false;$('time-range').value='10';$('processing-details').open=false;updateMode();busy(false);};
+  function updateOverride(){const enabled=$('override').checked&&$('input-type').value!=='edited';$('extraction-settings').hidden=!enabled;$('pre').disabled=!enabled;$('tail').disabled=!enabled;}
   $('override').onchange=()=>{invalidate();updateOverride();};
   for(const id of ['pre','tail'])$(id).addEventListener('input',invalidate);
   form.onsubmit=async e=>{
-    e.preventDefault();if(!file||!available)return;
-    const options=$('override').checked?{pre_samples:Number($('pre').value),tail_samples:Number($('tail').value)}:{pre_samples:0,tail_samples:24000};
+    e.preventDefault();if(!file||!available||($('reference-mode').value==='measured'&&!referenceFile))return;
+    const options=$('override').checked&&$('input-type').value!=='edited'?{pre_samples:Number($('pre').value),tail_samples:Number($('tail').value)}:{pre_samples:0,tail_samples:24000};
     if(!Number.isSafeInteger(options.pre_samples)||!Number.isSafeInteger(options.tail_samples)||options.pre_samples<0||options.tail_samples<1||options.pre_samples+options.tail_samples>48000){error('Enter whole sample counts with a total of at most 48,000 samples.');return;}
     invalidate();busy(true);const id=run,selected=file;$('status').textContent='Reading recording…';
-    let buffer;try{buffer=await selected.arrayBuffer();}catch{if(id===run){busy(false);error('The recording could not be read. Select the file again.');}return;}
+    let buffer,reference;const mode=$('input-type').value,selectedReference=$('reference-mode').value==='measured'?referenceFile:null;try{buffer=await selected.arrayBuffer();reference=selectedReference?await selectedReference.arrayBuffer():null;}catch{if(id===run){busy(false);error('The recording could not be read. Select the file again.');}return;}
     if(id!==run)return;
     try{
-      worker=new Worker(new URL('processor-worker.js?v=76b9d7baafb1',location.href),{type:'module'});
+      worker=new Worker(new URL('processor-worker.js?v=cfcce2d46d51',location.href),{type:'module'});
       worker.onerror=()=>{if(id!==run)return;stop();clearResult();error('The processing worker could not start or stopped unexpectedly. Reload the app using Launch.cmd or its HTTPS website.');};
       worker.onmessage=event=>{
         if(id!==run)return;const data=event.data;
@@ -37,7 +41,7 @@
         stop();if(data.type==='error'){error(data.message);return;}
         if(data.type==='done'){try{showResult(data.wav,data.report,selected.name,data.prefix);}catch(err){clearResult();error('The output could not be displayed: '+err.message);}}
       };
-      worker.postMessage({buffer,options},[buffer]);
+      worker.postMessage({buffer,options,mode,reference},reference?[buffer,reference]:[buffer]);
     }catch(err){stop();error('The processing worker could not start. Use Launch.cmd or the HTTPS website. '+err.message);}
   };
   function link(id,blob,name){const url=URL.createObjectURL(blob);urls.push(url);$(id).href=url;$(id).download=name;}
@@ -58,7 +62,7 @@
     }
     const stats=$('output-stats');stats.replaceChildren();for(const text of ['14 channels','48,000 Hz',`${ex.output_peak_dbfs.toFixed(2)} dBFS`,`${ex.output_frames.toLocaleString()} samples`,`Timing shift ${report.alignment.selected_shift_samples.toLocaleString()} samples`,`Common gain ${db(ex.gain_scalar)} dB`])item(stats,'li',text);
     const base=name.replace(/\.wav$/i,'')+'_HeSuVi';link('download-wav',new Blob([wav],{type:'audio/wav'}),base+'.wav');$('download-prefix').hidden=!prefix;if(prefix)link('download-prefix',new Blob([prefix],{type:'audio/wav'}),base+'_negative_time_prefix.wav');link('download-report',new Blob([JSON.stringify(report,null,2)],{type:'application/json'}),base+'.json');
-    $('diagnostics').replaceChildren();item($('diagnostics'),'p','Eight events detected. One common shift calibrates the median directional pair peak to sample 53; direction and ear timing are preserved.');
+    $('diagnostics').replaceChildren();item($('diagnostics'),'p',`One common shift aligns the measured median pair peak to reference sample ${report.alignment.reference_median_peak_samples}. Direction and ear timing are preserved. Reference: ${report.alignment.reference_source==='measured_wav'?'analyzed WAV':'saved calibration'}.`);
     const omitted=ex.window_qa.filter(row=>row.post_window_energy_fraction>0);if(omitted.length)item($('diagnostics'),'p','Energy beyond the extraction end: '+omitted.map(row=>`${row.label} ${(row.post_window_energy_fraction*100).toPrecision(3)}%`).join('; ')+'. Increase response length to retain more of the tail.');
     item($('diagnostics'),'pre',JSON.stringify({alignment:report.alignment,extraction:report.extraction},null,2));
     $('plots').replaceChildren();for(const direction of Object.keys(routing)){const figure=document.createElement('figure');item(figure,'figcaption',`${labels[direction]} (${direction})`);const canvas=document.createElement('canvas');canvas.dataset.direction=direction;canvas.setAttribute('role','img');canvas.setAttribute('aria-label',`${labels[direction]} left and right impulse responses; detailed values in output channel statistics.`);figure.append(canvas);$('plots').append(figure);}
@@ -77,6 +81,7 @@
       });
     }
   }
+  updateMode();
   $('analysis').addEventListener('toggle',drawPlots);$('time-range').onchange=drawPlots;window.addEventListener('resize',drawPlots);document.addEventListener('appearancechange',drawPlots);window.addEventListener('pagehide',()=>{stop();clearResult();});
 })();
 

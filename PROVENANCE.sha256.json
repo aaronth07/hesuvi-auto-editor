@@ -12,5 +12,11 @@
     "file": "presets/known_7_1_calibration.json",
     "sha256": "d30ecfd2b0db675423224b124f0f526f077338da7cf4b76528675094200c3134"
   },
-  "validation_record": "VALIDATION.md"
+  "validation_record": "VALIDATION.md",
+  "edited_hrir_converter": {
+    "file": "align_hrir.py",
+    "sha256": "d1ef9c72231e2867c27a39758022a420b47ff98279639718e5e52aee0f4d54b1",
+    "alignment": "common_median_pair_peak",
+    "reference": "User-selected 14-channel HeSuVi WAV, analyzed locally."
+  }
 }
