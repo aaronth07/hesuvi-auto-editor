@@ -104,8 +104,8 @@ assert.notEqual(defaultDark.contrastReport.surfaces.base, defaultDark.contrastRe
 assert.equal(defaultDark.css['--base'], 'oklch(0.1558 0.0063 285.64)');
 assert.equal(materialTokens('light').css['--base'], 'oklch(0.94 0.0063 285.64)');
 assert.ok(defaultDark.contrastReport.ambientCombinedAlpha >= .2);
-assert.equal(defaultDark.contrastReport.ambientAlpha, .121);
-assert.equal(materialTokens('light').contrastReport.ambientAlpha, .088);
+assert.equal(defaultDark.contrastReport.ambientAlpha, .260);
+assert.equal(materialTokens('light').contrastReport.ambientAlpha, .180);
 assert.equal(defaultDark.contrastReport.noiseAlpha, .008);
 assert.ok(materialTokens('dark', 'oklch(.56 .02 285)').contrastReport.ambientAlpha < defaultDark.contrastReport.ambientAlpha);
 console.log(`Materials passed: text ${minimumText.toFixed(3)}, muted ${minimumMuted.toFixed(3)}, traces ${minimumTrace.toFixed(3)}`);

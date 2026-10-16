@@ -13,13 +13,13 @@
   $('color-form').onsubmit=e=>{e.preventDefault();const color=$('base-color').value.trim();if(!HesuviMaterials.parseColor(color)){$('color-error').textContent='Enter an opaque OKLCH color or a 3- or 6-digit hex color.';$('color-error').hidden=false;return;}state.colors[state.theme]=color;apply();};
   $('reset-color').onclick=()=>{state.colors[state.theme]=defaults[state.theme];apply();};
   const reduce=matchMedia('(prefers-reduced-motion: reduce)'),fine=matchMedia('(hover: hover) and (pointer: fine)');
-  const ambient=document.querySelector('.ambient-lights'),lights=new WeakMap();
+  const ambient=document.querySelector('.ambient-lights'),fill=document.querySelector('.ambient-fill'),rim=document.querySelector('.ambient-rim'),lights=new WeakMap();
   let pending=0,point=null,active=[],currentX=0,currentY=0,lastTime=0;
   function clearLocal(){for(const entry of active){entry.light.style.opacity='0';entry.element.style.removeProperty('--cast-x');entry.element.style.removeProperty('--cast-y');}active=[];}
   function clearLighting(){
     if(pending)cancelAnimationFrame(pending);
     pending=0;point=null;lastTime=0;currentX=currentY=0;
-    clearLocal();ambient.style.removeProperty('transform');
+    clearLocal();for(const layer of [ambient,fill,rim])layer.style.removeProperty('transform');
   }
   function setLocalTargets(target,x,y){
     const control=target.closest('button:not(:disabled),a.button,summary');
@@ -43,7 +43,7 @@
     const amount=1-Math.exp(-dt/110),localAmount=1-Math.exp(-dt/45);
     const targetX=point.x/innerWidth*2-1,targetY=point.y/innerHeight*2-1;
     currentX+=(targetX-currentX)*amount;currentY+=(targetY-currentY)*amount;
-    if(!$('appearance-dialog').open)ambient.style.transform=`translate3d(${(currentX*24).toFixed(2)}px,${(currentY*18).toFixed(2)}px,0)`;
+    if(!$('appearance-dialog').open){ambient.style.transform=`translate3d(${(currentX*54).toFixed(2)}px,${(currentY*36).toFixed(2)}px,0)`;fill.style.transform=`translate3d(${(-currentX*68).toFixed(2)}px,${(-currentY*42).toFixed(2)}px,0)`;rim.style.transform=`translate3d(${(currentX*30).toFixed(2)}px,${(-currentY*24).toFixed(2)}px,0)`;}
     let moving=Math.abs(targetX-currentX)+Math.abs(targetY-currentY)>.004;
     for(const entry of active){
       const x=point.x-entry.rect.left,y=point.y-entry.rect.top;

@@ -3,6 +3,10 @@
 import argparse
 import json
 import struct
+import hashlib
+import os
+import sys
+import urllib.request
 from pathlib import Path
 
 import numpy as np
@@ -13,6 +17,30 @@ from dirac_to_hesuvi import DiagnosticError, ROUTING, read, require, stimulus, d
 DETECTION = {'activity_floor': 1e-7, 'activity_db': -100, 'noise_multiplier': 20,
              'quiet_gap_seconds': .15, 'onset_floor': 1e-8, 'onset_db': -80,
              'early_feature_db': -20, 'max_schedule_residual_samples': 2048}
+ASSETS = {'apple-reference.wav': '41e220201015fba7f606863f0327357acb1692dcc465cf69022c3d69cf78ca4c',
+          'dirac-7.1.wav': 'e607d3fdc38e5f11bb8c705fd318b5bc360fb6bc33b05258f70802469e8717fe'}
+
+
+def download_asset(name, cache):
+    cache.mkdir(parents=True, exist_ok=True)
+    url = 'https://raw.githubusercontent.com/aaronth07/hesuvi-auto-editor/main/docs/assets/'+name
+    with urllib.request.urlopen(url, timeout=30) as response:
+        data = response.read(16*1024*1024)
+    require(hashlib.sha256(data).hexdigest() == ASSETS[name], 'Downloaded reference checksum mismatch')
+    path = cache/name
+    path.write_bytes(data)
+    return path
+
+
+def asset_path(name):
+    cache = Path(os.environ.get('LOCALAPPDATA', Path.home()/'.cache'))/'HeSuViAutoEditor'
+    locations = [Path(__file__).resolve().parent/'docs/assets',
+                 Path(sys.prefix)/'share/hesuvi-auto-editor', cache]
+    for directory in locations:
+        path = directory/name
+        if path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest() == ASSETS[name]:
+            return path
+    return download_asset(name, cache)
 
 
 def read_input(path):
@@ -39,14 +67,18 @@ def read_input(path):
     return rate, samples, metadata
 
 
-def peak_positions(samples):
+class LeadingSamplesWarning(DiagnosticError):
+    pass
+
+
+def peak_positions(samples, check_earlier=True):
     rows = []
     for label, channels in ROUTING.items():
         pair = np.abs(samples[:, channels])
         require(np.all(np.max(pair, axis=0) > 0), f'{label}: each ear must contain a nonzero response')
         peak = int(np.argmax(np.max(pair, axis=1)))
         first = int(np.flatnonzero(np.max(pair, axis=1) > np.max(pair) * .1)[0])
-        require(peak - first <= 48, f'{label}: ambiguous peak anchor; substantial earlier response precedes the peak by {peak-first} samples')
+        require(not check_earlier or peak - first <= 48, f'{label}: ambiguous peak anchor; substantial earlier response precedes the peak by {peak-first} samples')
         ears = np.argmax(pair, axis=0)
         rows.append({'label': label, 'pair_peak_sample': peak,
                      'ear_peak_samples': [int(n) for n in ears]})
@@ -62,18 +94,25 @@ def validate_hrir(samples, name):
     return samples
 
 
-def align(samples, reference):
-    """Apply one integer shift with zero padding; retain every nonzero sample."""
+def align(samples, reference, allow_leading_truncation=False):
+    """Apply one integer shift; warn before removing above-noise leading response."""
     samples = validate_hrir(samples, 'Input')
     reference = validate_hrir(reference, 'Reference')
-    rows = peak_positions(samples)
+    rows = peak_positions(samples, check_earlier=False)
     reference_rows = peak_positions(reference)
     anchor = int(np.median([r['pair_peak_sample'] for r in rows]))
     reference_anchor = int(np.median([r['pair_peak_sample'] for r in reference_rows]))
     shift = anchor - reference_anchor
-    # A negative shift adds leading silence. A positive shift only removes silence.
-    require(shift <= 0 or not np.any(samples[:shift]),
-            'Alignment would remove nonzero leading samples; use a reference with a later peak')
+    noise = float(np.median(np.abs(samples)))
+    reference_noise = float(np.median(np.abs(reference)))
+    threshold = 10*max(1e-7, noise, reference_noise)
+    removed_peak = float(np.max(np.abs(samples[:shift]))) if shift > 0 else 0.
+    leading = {'frames_removed': max(shift,0), 'peak_abs': removed_peak,
+               'input_noise_floor': noise, 'reference_noise_floor': reference_noise,
+               'threshold_abs': threshold, 'above_threshold': removed_peak > threshold,
+               'override_applied': removed_peak > threshold and allow_leading_truncation}
+    if leading['above_threshold'] and not allow_leading_truncation:
+        raise LeadingSamplesWarning(f'Alignment would remove {shift} leading samples above the noise threshold ({20*np.log10(removed_peak):.1f} dBFS peak; {20*np.log10(threshold):.1f} dBFS threshold). Review them, then use --allow-leading-truncation to continue.')
     frames = max(len(samples), len(samples) - shift)
     output = np.zeros((frames, 14), dtype=np.float64)
     source_start = max(shift, 0)
@@ -89,7 +128,7 @@ def align(samples, reference):
                       'reference_peak_offsets_samples': [r['pair_peak_sample'] for r in reference_rows],
                       'output_peak_samples': [r['pair_peak_sample']-shift for r in rows],
                       'physical_latency_identifiable': False},
-        'events': rows, 'reference_events': reference_rows, 'routing': ROUTING,
+        'events': rows, 'reference_events': reference_rows, 'routing': ROUTING, 'leading_samples': leading,
         'extraction': {'pre_samples': 0, 'output_frames': frames, 'output_channels': 14,
                        'gain_scalar': gain, 'pre_gain_peak': peak, 'target_peak_dbfs': -2,
                        'output_peak_dbfs': float(20*np.log10(np.max(np.abs(output)))),
@@ -145,12 +184,14 @@ def align_capture(samples, reference, events):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--input', required=True, type=Path)
-    parser.add_argument('--reference', required=True, type=Path)
+    parser.add_argument('--reference', type=Path, help='Default: bundled Apple reference')
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--capture', action='store_true', help='Convert a raw stereo stimulus recording instead of an edited HRIR')
-    parser.add_argument('--stimulus', type=Path, help='Original eight-channel 7.1 Dirac WAV; required with --capture')
+    parser.add_argument('--allow-leading-truncation', action='store_true', help='Allow edited-HRIR alignment to discard leading samples above the noise threshold')
+    parser.add_argument('--stimulus', type=Path, help='Default with --capture: bundled 7.1 Dirac WAV')
     args = parser.parse_args()
     try:
+        args.reference = args.reference or asset_path('apple-reference.wav')
         require(args.output.suffix.lower() == '.wav', 'Output filename must end in .wav')
         require(args.output.resolve() not in (args.input.resolve(), args.reference.resolve()),
                 'Output must be a different file from input and reference')
@@ -158,14 +199,17 @@ def main():
         rate, samples, info = read_input(args.input)
         reference_rate, reference, reference_info = read_input(args.reference)
         require(rate == reference_rate == 48000, 'Input and reference must be native 48,000 Hz')
-        require(args.capture == (args.stimulus is not None), 'Use --capture and --stimulus together for raw recordings')
+        require(args.capture or args.stimulus is None, '--stimulus applies only to --capture')
         prefix = None
         if args.capture:
+            args.stimulus = args.stimulus or asset_path('dirac-7.1.wav')
             source_rate, events, _ = stimulus(args.stimulus, ['FL','FR','FC','LFE','BL','BR','SL','SR'])
             require(source_rate == rate, 'Stimulus must be native 48,000 Hz')
+            expected_labels = ['FL','SL','BL','FC','FR','SR','BR','LFE']
+            require([(e['label'],e['sample'],e['amplitude']) for e in events] == [(label,48000*(i+1),32767/32768) for i,label in enumerate(expected_labels)], 'Use the supplied original 7.1 Dirac stimulus')
             output, prefix, report = align_capture(samples, reference, events)
         else:
-            output, report = align(samples, reference)
+            output, report = align(samples, reference, args.allow_leading_truncation)
         report.update(input=info, reference=reference_info)
         report['extraction']['sample_rate'] = rate
         report_path = args.output.with_suffix('.json')
@@ -178,6 +222,8 @@ def main():
             wavfile.write(prefix_path, rate, prefix)
         report_path.write_text(json.dumps(report, indent=2)+'\n', encoding='utf-8')
         print(f"Applied common shift: {report['alignment']['selected_shift_samples']} samples")
+    except LeadingSamplesWarning as warning:
+        parser.exit(3, f'Warning: {warning}\n')
     except (DiagnosticError, OSError, ValueError, struct.error) as error:
         parser.exit(2, f'Error: {error}\n')
 

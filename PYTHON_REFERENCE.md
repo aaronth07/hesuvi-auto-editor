@@ -1,6 +1,6 @@
 # Python reference
 
-The Python converter uses the actual stimulus and a trusted stereo reference to establish timing. The browser uses the known 48 kHz stimulus schedule and can analyze a complete stereo reference capture or a 14-channel reference HRIR. Its optional saved calibration uses the documented 53-sample reference median. The separate `align_hrir.py` script aligns edited 14-channel inputs to an edited 14-channel reference, using the same common-median rule and preserving all nonzero response samples.
+The Python converter uses the actual stimulus and a trusted stereo reference to establish timing. The browser automatically loads the bundled Apple reference and original 7.1 Dirac WAV. It validates the actual stimulus and measures reference waveform peaks. The separate `align_hrir.py` script aligns edited 14-channel inputs to an edited 14-channel reference, using the same common-median rule and retaining the complete tail and warning before discarding leading samples above its noise threshold. Apple and Dirac paths default to bundled, checksum-verified files; missing defaults are downloaded from this repository.
 
 ## Inputs and configuration
 

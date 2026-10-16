@@ -95,7 +95,7 @@
     const tintL = blackText ? Math.max(.86, base.L - .04) : Math.min(base.L + .12, .30);
     const tintC = Math.min(base.C, .018), tint = gamut(tintL, tintC, base.H);
     const alphas = {workspace: .08, panel: dark ? .42 : .48, control: dark ? .36 : .4, popup: dark ? .30 : .36};
-    const ambientL = dark ? .70 : .84, ambientC = dark ? .12 : .075;
+    const ambientL = dark ? .70 : .84, ambientC = dark ? .14 : .105;
     const ambientHues = [250, 190, 65];
     const ambientColors = ambientHues.map(H => rgbOf(color(ambientL, ambientC, H)));
     function ambientBounds(alpha) {
@@ -108,7 +108,7 @@
       return [0, 1].map(side => [0, 1, 2].map(channel => Math[side ? 'max' : 'min'](...corners.map(rgb => rgb[channel]))));
     }
     // Channel bounds include every overlap and intermediate radial-gradient opacity.
-    let ambientStep = dark ? 121 : 88;
+    let ambientStep = dark ? 260 : 180;
     while (ambientStep > 0 && ambientBounds(ambientStep / 1000).flatMap(noisy).some(rgb => contrast(foreground, rgb) < 4.53)) ambientStep--;
     const ambientAlpha = ambientStep / 1000, ambientEnvelope = ambientBounds(ambientAlpha);
     const surfaces = {base: base.rgb};

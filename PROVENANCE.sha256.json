@@ -1,6 +1,6 @@
 {
   "format_version": 2,
-  "scope": "Python reference, browser application, synthetic tests, and public calibration metadata. No private recordings or supplied listening files.",
+  "scope": "Python reference, browser application, tests, public calibration, and the two explicitly authorized reference WAVs. Capture recordings and converted listening files are excluded.",
   "converter_provenance": {
     "file": "dirac_to_hesuvi.py",
     "version": "supplied CommonTiming Fix",
@@ -15,8 +15,20 @@
   "validation_record": "VALIDATION.md",
   "edited_hrir_converter": {
     "file": "align_hrir.py",
-    "sha256": "d1ef9c72231e2867c27a39758022a420b47ff98279639718e5e52aee0f4d54b1",
+    "sha256": "e99a7213550a6394b8410d3f97fd38c6b85f26dc8c4ec819629a105cc8ddaf0a",
     "alignment": "common_median_pair_peak",
     "reference": "User-selected 14-channel HeSuVi WAV, analyzed locally."
-  }
+  },
+  "bundled_assets": [
+    {
+      "file": "docs/assets/apple-reference.wav",
+      "sha256": "41e220201015fba7f606863f0327357acb1692dcc465cf69022c3d69cf78ca4c",
+      "bytes": 2688044
+    },
+    {
+      "file": "docs/assets/dirac-7.1.wav",
+      "sha256": "e607d3fdc38e5f11bb8c705fd318b5bc360fb6bc33b05258f70802469e8717fe",
+      "bytes": 6912102
+    }
+  ]
 }

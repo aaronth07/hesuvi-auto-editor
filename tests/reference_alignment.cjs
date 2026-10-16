@@ -39,12 +39,12 @@ test('edited HRIR decodes multichannel PCM16 and float64 without changing routin
   assert.deepEqual(samples(result.wav),samples(bytes(`expected${bits}bit.wav`)));
  }
 });
-test('edited HRIR rejects missing reference, wrong channels/rate, silence, clipping, nonfinite samples, and leading-sample loss',async()=>{
+test('edited HRIR rejects missing reference, wrong channels/rate, silence, clipping, nonfinite samples, and nonfinite samples',async()=>{
  const input=bytes('edited300.wav'),ref=bytes('reference14.wav'),info=dsp.parseWave(input,14);
  await assert.rejects(dsp.processEditedWave(input,null),/reference WAV/);
  await assert.rejects(dsp.processEditedWave(bytes('capture.wav'),ref),/14 channels/);
  await assert.rejects(dsp.processEditedWave(input,bytes('reference2.wav')),/14-channel/);
- for(const [value,pattern] of [[1,/Clipped/],[NaN,/Nonfinite/],[1e-9,/remove nonzero/]]){
+ for(const [value,pattern] of [[1,/Clipped/],[NaN,/Nonfinite/]]){
   const changed=input.slice(0);new DataView(changed).setFloat32(info.data_offset,value,true);
   await assert.rejects(dsp.processEditedWave(changed,ref),pattern);
  }
@@ -52,4 +52,18 @@ test('edited HRIR rejects missing reference, wrong channels/rate, silence, clipp
  await assert.rejects(dsp.processEditedWave(silent,ref),/nonzero response/);
  const rate=input.slice(0);new DataView(rate).setUint32(24,44100,true);
  await assert.rejects(dsp.processEditedWave(rate,ref),/48,000/);
+});
+
+test('edited HRIR trims low-level noise automatically and permits explicit override above ten times noise',async()=>{
+ const ref=bytes('reference14.wav'),input=bytes('edited300.wav'),info=dsp.parseWave(input,14);
+ const low=input.slice(0);new DataView(low).setFloat32(info.data_offset,1e-7,true);
+ const quiet=await dsp.processEditedWave(low,ref);assert.equal(quiet.report.leading_samples.above_threshold,false);
+ const high=input.slice(0);new DataView(high).setFloat32(info.data_offset,.02,true);
+ await assert.rejects(dsp.processEditedWave(high,ref),error=>error.name==='LeadingSamplesWarning');
+ const forced=await dsp.processEditedWave(high,ref,()=>{},{allow_leading_truncation:true});assert.equal(forced.report.leading_samples.override_applied,true);
+});
+test('bundled 7.1 stimulus is the exact verified original and modified bytes are rejected',async()=>{
+ const b=fs.readFileSync(path.join(root,'docs/assets/dirac-7.1.wav'));const buffer=b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength);
+ const stimulus=await dsp.validateStimulus(buffer);assert.equal(stimulus.events.length,8);assert.equal(stimulus.events[0].sample,48000);assert.equal(stimulus.events[7].label,'LFE');
+ new Uint8Array(buffer)[buffer.byteLength-1]^=1;await assert.rejects(dsp.validateStimulus(buffer),/verified original/);
 });

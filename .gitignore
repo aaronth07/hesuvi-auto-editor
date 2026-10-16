@@ -25,3 +25,6 @@ dist/
 tests/.generated/
 
 .handoff-common-timing/
+
+!docs/assets/apple-reference.wav
+!docs/assets/dirac-7.1.wav

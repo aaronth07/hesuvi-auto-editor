@@ -6,11 +6,9 @@ HeSuVi Auto Editor takes an unedited stereo recording of the supplied 7.1 Dirac 
 
 ## Browser version
 
-Select **Unedited stereo capture** for a raw 48 kHz stereo WAV containing all eight stimulus events, including LFE. **Analyze reference WAV** measures the peaks in a local reference: use the complete stereo reference capture of the same stimulus, or an edited 14-channel HeSuVi reference. Select **Process recording**, then download the WAV. The known stimulus schedule is built in.
+Select **Unedited stereo capture** for a raw 48 kHz stereo WAV containing all eight stimulus events, including LFE. Select **Process recording**, then download the WAV. The exact [Apple reference](docs/assets/apple-reference.wav) and original [7.1 Dirac stimulus](docs/assets/dirac-7.1.wav) load automatically from the included assets. The worker verifies the stimulus and measures the actual reference peaks for every run.
 
-For the original single-recording workflow, select **Saved 53-sample calibration**. This still measures peaks in the recording, but uses the saved reference median rather than analyzing reference audio.
-
-Select **Edited HeSuVi HRIR** for an existing 14-channel WAV. Choose the input and its 14-channel reference, then select **Align HRIR**. It shifts all channels together, preserves the existing channel order and complete nonzero response, and applies one common gain. It retains the input length for an earlier shift and extends it with leading silence for a later shift. A shift that would remove nonzero leading samples produces an error. Samples removed during earlier editing cannot be restored.
+Select **Edited HeSuVi HRIR** for an existing 14-channel WAV, then select **Align HRIR**. It uses the same Apple reference automatically. All channels shift together and receive one common gain. Low-level leading noise is removed when shifting earlier; trailing samples are retained and silence is added when needed. Leading samples above ten times the greater of the input and reference median absolute noise floors trigger a warning. **Align and trim leading samples** explicitly allows that removal. The threshold has a −120 dBFS minimum and is recorded with the removed peak level and any override. Samples removed during earlier editing cannot be restored.
 
 Processing runs in your browser. The recording is not uploaded. The output is a 48 kHz, 14-channel float32 WAV, with one gain applied to the whole file so its highest sample reaches -2 dBFS.
 
@@ -66,22 +64,22 @@ The default alignment is `common_peak`. Historical `apple_peak` and `apple_onset
 Use the separate timing-only script for existing 48 kHz, 14-channel HeSuVi WAVs:
 
 ```sh
-python align_hrir.py --input edited.wav --reference reference-14ch.wav --output aligned.wav
+python align_hrir.py --input edited.wav --output aligned.wav
 ```
 
 To convert a raw stereo capture against an edited 14-channel reference using the actual stimulus, add the capture options:
 
 ```sh
-python align_hrir.py --capture --stimulus dirac-7.1.wav --input recording.wav --reference reference-14ch.wav --output converted.wav
+python align_hrir.py --capture --input recording.wav --output converted.wav
 ```
 
 This capture mode uses the original detector and extractor, a 24,000-sample response, and a 1,024-sample negative-time prefix at the main gain. The original config-based converter remains available for complete stereo reference captures and custom extraction settings.
 
-The script writes the aligned float32 WAV and a JSON report beside it. Choose a new output name; input, reference, and existing outputs are protected against overwriting. The reference must already have the intended time origin. Both browser and Python use the difference between the two median directional pair peaks, preserving interaural and directional timing.
+The script writes the aligned float32 WAV and a JSON report beside it. Choose a new output name; input, reference, and existing outputs are protected against overwriting. Apple and Dirac assets are included in the package; if missing, the script downloads checksum-verified copies from this repository into its user cache. Explicit `--reference` and `--stimulus` paths remain available. Use `--allow-leading-truncation` to continue after reviewing an above-noise leading-sample warning. The reference must already have the intended time origin. Both browser and Python use the difference between the two median directional pair peaks, preserving interaural and directional timing.
 
 ## Timing and export
 
-For each of the seven full-range directions, the processor measures the stereo pair peak relative to its scheduled stimulus event. It takes their median and applies one integer crop offset to every direction and both ears. With reference analysis, the browser measures all seven reference pair peaks and aligns the capture median to their median, matching offline `common_peak`. Saved calibration places that median at sample 53. It does not force each individual peak to sample 53 or reject a recording because its directional peak differences do not match Apple.
+For each of the seven full-range directions, the processor measures the stereo pair peak relative to its scheduled stimulus event. It takes their median and applies one integer crop offset to every direction and both ears. The browser measures all seven Apple reference pair peaks and aligns the capture median to their median, matching offline `common_peak`. The bundled reference has a median of 53 samples. It does not force each individual peak to sample 53 or reject a recording because its directional peak differences do not match Apple.
 
 This is an editing convention. It cannot separate capture-start delay from renderer latency, and identical stimulus impulses cannot independently prove downstream speaker routing. Event count and schedule checks, the earlier-feature guard, extraction bounds, prefix capacity, and tail checks remain active. Preserve the original recording.
 
@@ -100,4 +98,4 @@ python -m unittest -v test_dirac_to_hesuvi test_common_peak tests/test_oracle.py
 node --test tests/frontend.test.cjs tests/parity_runner.cjs tests/processor_matrix.cjs tests/materials.cjs tests/common_timing.cjs tests/reference_alignment.cjs
 ```
 
-The Node parity tests use `.venv/Scripts/python.exe` on Windows by default. Set `PYTHON` to an absolute Python executable path if needed. Test WAVs are generated under `tests/.generated/` and are not committed. Recordings, supplied listening files, and local reports are excluded from the repository and the standalone package. See [VALIDATION.md](VALIDATION.md) for the comparisons performed and their limits.
+The Node parity tests use `.venv/Scripts/python.exe` on Windows by default. Set `PYTHON` to an absolute Python executable path if needed. Test WAVs are generated under `tests/.generated/` and are not committed. The two explicitly supplied reference WAVs are included. Capture recordings, converted listening files, and local reports are excluded from the repository and the standalone app package. See [VALIDATION.md](VALIDATION.md) for the comparisons performed and their limits.

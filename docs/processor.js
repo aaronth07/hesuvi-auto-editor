@@ -1,5 +1,5 @@
 // Single-input common_peak equivalent of the supplied Python reference.
-export const PROCESSOR_VERSION = '3.0.0';
+export const PROCESSOR_VERSION = '3.1.0';
 export const MEMORY_LIMIT_BYTES = 128 * 1024 * 1024;
 export const ROUTING = Object.freeze({FL:[0,1],SL:[2,3],BL:[4,5],FC:[6,13],FR:[8,7],SR:[10,9],BR:[12,11]});
 const LABELS = ['FL','SL','BL','FC','FR','SR','BR','LFE'];
@@ -65,7 +65,7 @@ export function parseWave(buffer, expectedChannels=2) {
       requireValue((Array.isArray(expectedChannels)?expectedChannels:[expectedChannels]).includes(channels),`Expected ${Array.isArray(expectedChannels)?expectedChannels.join(' or '):expectedChannels} channels; received ${channels}.`);
       requireValue(sample_rate===48000,'Input must be native 48,000 Hz; resampling is not performed.');
       requireValue(block_align===channels*(bits/8)&&byte_rate===sample_rate*block_align,'Invalid WAV block alignment or byte rate.');
-      requireValue(channel_mask===null||channel_mask===0||(channels===2&&channel_mask===3),'WAV channel mask conflicts with the required channel order.');
+      requireValue(channel_mask===null||channel_mask===0||(channels===2&&channel_mask===3)||(channels===8&&channel_mask===1599),'WAV channel mask conflicts with the required channel order.');
       fmt={format,channels,sample_rate,bits,valid_bits,channel_mask,block_align};
     } else if(tag==='data') {
       requireValue(!data,'Multiple WAV data chunks are unsupported.');data={start,size};
@@ -80,6 +80,18 @@ async function hash(buffer) {
   requireValue(globalThis.crypto?.subtle,'Local hashing requires a secure browser context (HTTPS or localhost).');
   const digest=await globalThis.crypto.subtle.digest('SHA-256',buffer);
   return Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,'0')).join('');
+}
+export async function validateStimulus(buffer) {
+  const info=parseWave(buffer,8),sha256=await hash(buffer);
+  requireValue(sha256==='e607d3fdc38e5f11bb8c705fd318b5bc360fb6bc33b05258f70802469e8717fe','The bundled 7.1 Dirac stimulus does not match the verified original. Reload reference files.');
+  requireValue(info.format===1&&info.bits===16&&info.frames===432000,'Invalid bundled 7.1 Dirac format.');
+  const view=new DataView(buffer),events=[];
+  for(let n=0;n<info.frames;n++)for(let ch=0;ch<8;ch++) {
+    const value=view.getInt16(info.data_offset+(n*8+ch)*2,true);
+    if(value)events.push({sample:n,source_channel:ch,amplitude:value/32768});
+  }
+  requireValue(events.length===8&&events.every((event,i)=>event.sample===48000*(i+1)&&event.source_channel===SOURCE_CHANNELS[i]&&event.amplitude===32767/32768),'The bundled Dirac event schedule is invalid.');
+  return {...info,sha256,events:events.map((event,i)=>({...event,label:LABELS[i]}))};
 }
 function decode(buffer,info) {
   const v=new DataView(buffer),x=new Float64Array(info.frames*info.channels),a=new Float64Array(info.frames);
@@ -155,7 +167,7 @@ function writeWave(x,events,shift,pre,tail,gain) {
   }
   return {buffer,outputPeak};
 }
-function hrirPeaks(x,frames) {
+function hrirPeaks(x,frames,checkEarlier=true) {
   return Object.entries(ROUTING).map(([label,channels])=>{
     let peak=0,index=0;const earValues=[0,0],ears=[0,0];
     for(let n=0;n<frames;n++)for(let ear=0;ear<2;ear++) {
@@ -165,13 +177,13 @@ function hrirPeaks(x,frames) {
     }
     requireValue(earValues.every(v=>v>0),`${label}: each ear must contain a nonzero response.`);
     let first=index;for(let n=0;n<=index;n++)if(channels.some(ch=>Math.abs(x[n*14+ch])>peak*.1)){first=n;break;}
-    requireValue(index-first<=48,`${label}: ambiguous peak anchor; substantial earlier response precedes the peak by ${index-first} samples.`);
-    return {label,pair_peak_sample:index,ear_peak_samples:ears};
+    requireValue(!checkEarlier||index-first<=48,`${label}: ambiguous peak anchor; substantial earlier response precedes the peak by ${index-first} samples.`);
+    return {label,pair_peak_sample:index,ear_peak_samples:ears,substantial_feature_lead_samples:index-first};
   });
 }
 export async function measureReference(buffer,retainedBytes=0) {
   const info=parseWave(buffer,[2,14]);
-  requireValue(retainedBytes+buffer.byteLength*2+info.frames*(info.channels*8+16)<=MEMORY_LIMIT_BYTES,'Reference exceeds the working memory limit.');
+  requireValue(retainedBytes+buffer.byteLength*2+info.frames*(info.channels*16+16)<=MEMORY_LIMIT_BYTES,'Reference exceeds the working memory limit.');
   const {x,a}=decode(buffer,info);
   let rows;
   if(info.channels===14)rows=hrirPeaks(x,info.frames);
@@ -181,17 +193,21 @@ export async function measureReference(buffer,retainedBytes=0) {
     rows=rows.map(row=>({...row,pair_peak_sample:row.peak-row.sample}));
   }
   const peaks=rows.map(row=>row.pair_peak_sample);
-  return {median_peak_samples:median(Float64Array.from(peaks)),peak_samples:peaks,events:rows,input:{...info,sha256:await hash(buffer)}};
+  return {noise_floor:median(Float64Array.from(x,Math.abs)),median_peak_samples:median(Float64Array.from(peaks)),peak_samples:peaks,events:rows,input:{...info,sha256:await hash(buffer)}};
 }
-export async function processEditedWave(buffer,referenceBuffer,progress=()=>{}) {
+export async function processEditedWave(buffer,referenceBuffer,progress=()=>{},options={}) {
+  requireValue(options&&Object.keys(options).every(key=>key==='allow_leading_truncation')&&[undefined,true,false].includes(options.allow_leading_truncation),'Invalid edited-HRIR alignment settings.');
   requireValue(referenceBuffer instanceof ArrayBuffer,'Choose a measured reference WAV for edited HRIR alignment.');
   progress('Analyzing reference peaks');const reference=await measureReference(referenceBuffer,buffer.byteLength);
   requireValue(reference.input.channels===14,'Edited HRIR alignment requires a 14-channel HeSuVi reference WAV.');
   progress('Reading edited HRIR');const info=parseWave(buffer,14);
   requireValue(referenceBuffer.byteLength+buffer.byteLength+info.frames*240<=MEMORY_LIMIT_BYTES,'HRIR and working buffers exceed the 128 MiB memory limit.');
-  const {x}=decode(buffer,info),events=hrirPeaks(x,info.frames);
+  const {x}=decode(buffer,info),events=hrirPeaks(x,info.frames,false);
   const anchor=median(Float64Array.from(events.map(row=>row.pair_peak_sample))),shift=anchor-reference.median_peak_samples;
-  for(let n=0;n<Math.min(Math.max(shift,0),info.frames);n++)for(let ch=0;ch<14;ch++)requireValue(x[n*14+ch]===0,'Alignment would remove nonzero leading samples; use a reference with a later peak.');
+  const noiseFloor=median(Float64Array.from(x,Math.abs)),referenceNoise=reference.noise_floor,threshold=10*Math.max(1e-7,noiseFloor,referenceNoise);let removedPeak=0;
+  for(let n=0;n<Math.min(Math.max(shift,0),info.frames)*14;n++)removedPeak=Math.max(removedPeak,Math.abs(x[n]));
+  const leading={frames_removed:Math.max(shift,0),peak_abs:removedPeak,input_noise_floor:noiseFloor,reference_noise_floor:referenceNoise,threshold_abs:threshold,above_threshold:removedPeak>threshold,override_applied:removedPeak>threshold&&!!options.allow_leading_truncation};
+  if(leading.above_threshold&&!options.allow_leading_truncation){const warning=new Error(`Alignment would remove ${shift} leading samples with a peak of ${(20*Math.log10(removedPeak)).toFixed(1)} dBFS, above the noise threshold of ${(20*Math.log10(threshold)).toFixed(1)} dBFS. Continue only if these samples can be discarded.`);warning.name='LeadingSamplesWarning';throw warning;}
   const frames=Math.max(info.frames,info.frames-shift);
   requireValue(referenceBuffer.byteLength+buffer.byteLength+info.frames*112+frames*112<=MEMORY_LIMIT_BYTES,'Aligned HRIR exceeds the working memory limit.');
   let peak=0;for(const sample of x)peak=Math.max(peak,Math.abs(sample));const gain=10**(-2/20)/peak;
@@ -201,7 +217,7 @@ export async function processEditedWave(buffer,referenceBuffer,progress=()=>{}) 
   for(let n=Math.max(shift,0);n<info.frames;n++)for(let ch=0;ch<14;ch++) {
     const value=Math.fround(x[n*14+ch]*gain);outputPeak=Math.max(outputPeak,Math.abs(value));view.setFloat32(44+((n-shift)*14+ch)*4,value,true);
   }
-  const report={status:'passed',workflow:'edited_hrir',implementation_version:PROCESSOR_VERSION,input:{...info,sha256:await hash(buffer)},routing:ROUTING,events,reference_events:reference.events,
+  const report={status:'passed',workflow:'edited_hrir',leading_samples:leading,implementation_version:PROCESSOR_VERSION,input:{...info,sha256:await hash(buffer)},routing:ROUTING,events,reference_events:reference.events,
     alignment:{convention:'common_peak',method:'common_median_pair_peak',selected_shift_samples:shift,selected_shift_seconds:shift/48000,capture_median_peak_samples:anchor,reference_median_peak_samples:reference.median_peak_samples,reference_peak_offsets_samples:reference.peak_samples,output_peak_samples:events.map(row=>row.pair_peak_sample-shift),reference_source:'measured_wav',reference_input:reference.input,physical_latency_identifiable:false},
     extraction:{pre_samples:0,output_frames:frames,output_channels:14,sample_rate:48000,gain_scalar:gain,pre_gain_peak:peak,target_peak_dbfs:-2,output_peak_dbfs:20*Math.log10(outputPeak),window_qa:[],sha256:await hash(wav)}};
   progress('Complete');return {wav,prefix:null,report};

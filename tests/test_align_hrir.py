@@ -3,13 +3,15 @@ import unittest
 import subprocess
 import tempfile
 import struct
+from unittest.mock import patch
+import io
 from pathlib import Path
 import numpy as np
 from scipy.signal import fftconvolve
 from scipy.io import wavfile
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from align_hrir import align, align_capture, peak_positions, read_input
+from align_hrir import align, align_capture, peak_positions, read_input, asset_path, download_asset
 from dirac_to_hesuvi import DiagnosticError, ROUTING
 
 
@@ -49,9 +51,10 @@ class EditedAlignmentTests(unittest.TestCase):
         for changed in [x[:,:2],x*np.nan,x*0]:
             with self.assertRaises(DiagnosticError):align(changed,r)
         x[1,0]=1e-12
-        with self.assertRaisesRegex(DiagnosticError,'remove nonzero'):align(x,r)
+        self.assertFalse(align(x,r)[1]['leading_samples']['above_threshold'])
         x[1,0]=.2
-        with self.assertRaisesRegex(DiagnosticError,'ambiguous'):align(x,r)
+        with self.assertRaisesRegex(DiagnosticError,'noise threshold'):align(x,r)
+        self.assertTrue(align(x,r,True)[1]['leading_samples']['override_applied'])
 
     def test_cli_and_overwrite_protection(self):
         x,r=self.pair()
@@ -109,6 +112,36 @@ class EditedAlignmentTests(unittest.TestCase):
                 if value==8388607:
                     with self.assertRaisesRegex(DiagnosticError,'full-scale'):read_input(path)
                 else:self.assertEqual(read_input(path)[0],48000)
+
+    def test_bundled_defaults_and_verified_download(self):
+        x,_=self.pair()
+        reference=read_input(asset_path('apple-reference.wav'))[1]
+        with tempfile.TemporaryDirectory() as directory:
+            folder=Path(directory)
+            wavfile.write(folder/'input.wav',48000,x)
+            result=subprocess.run([sys.executable,str(Path(__file__).resolve().parents[1]/'align_hrir.py'),
+                                   '--input',str(folder/'input.wav'),'--output',str(folder/'output.wav')],capture_output=True,text=True)
+            self.assertEqual(result.returncode,0,result.stderr)
+            np.testing.assert_array_equal(wavfile.read(folder/'output.wav')[1],align(x,reference)[0])
+            data=asset_path('apple-reference.wav').read_bytes()
+            with patch('urllib.request.urlopen',return_value=io.BytesIO(data)):
+                self.assertEqual(download_asset('apple-reference.wav',folder/'cache').read_bytes(),data)
+            with patch('urllib.request.urlopen',return_value=io.BytesIO(b'invalid')):
+                with self.assertRaisesRegex(DiagnosticError,'checksum'):download_asset('apple-reference.wav',folder/'invalid')
+
+    def test_noise_threshold_and_cli_warning_override(self):
+        x,r=self.pair();x[x==0]=1e-5;r[r==0]=3e-5
+        x[0,0]=1e-4
+        self.assertFalse(align(x,r)[1]['leading_samples']['above_threshold'])
+        x[0,0]=.02
+        with tempfile.TemporaryDirectory() as directory:
+            folder=Path(directory)
+            wavfile.write(folder/'input.wav',48000,x);wavfile.write(folder/'reference.wav',48000,r)
+            command=[sys.executable,str(Path(__file__).resolve().parents[1]/'align_hrir.py'),
+                     '--input',str(folder/'input.wav'),'--reference',str(folder/'reference.wav'),'--output',str(folder/'output.wav')]
+            result=subprocess.run(command,capture_output=True,text=True)
+            self.assertEqual(result.returncode,3);self.assertIn('Warning:',result.stderr);self.assertFalse((folder/'output.wav').exists())
+            self.assertEqual(subprocess.run(command+['--allow-leading-truncation'],capture_output=True).returncode,0)
 
 
 if __name__=='__main__':unittest.main()
